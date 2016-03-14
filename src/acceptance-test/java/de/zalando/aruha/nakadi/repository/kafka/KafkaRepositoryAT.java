@@ -7,6 +7,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.arrayWithSize;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -36,40 +37,27 @@ public class KafkaRepositoryAT extends BaseAT {
 
     private KafkaRepositorySettings repositorySettings;
     private KafkaTestHelper kafkaHelper;
+    private KafkaTopicRepository kafkaTopicRepository;
+    private String topicName;
 
     @Before
     public void setup() {
         repositorySettings = createRepositorySettings();
         kafkaHelper = new KafkaTestHelper(kafkaUrl);
+        kafkaTopicRepository = createKafkaTopicRepository();
+        topicName = TestUtils.randomValidEventTypeName();
     }
 
     @Test(timeout = 10000)
     @SuppressWarnings("unchecked")
     public void whenCreateTopicThenTopicIsCreated() throws Exception {
 
-        // ARRANGE //
-        final String topicName = TestUtils.randomString();
-
-        final CuratorZookeeperClient zookeeperClient = mock(CuratorZookeeperClient.class);
-        when(zookeeperClient.getCurrentConnectionString()).thenReturn(zookeeperUrl);
-
-        final CuratorFramework curatorFramework = mock(CuratorFramework.class);
-        when(curatorFramework.getZookeeperClient()).thenReturn(zookeeperClient);
-
-        final ZooKeeperHolder zooKeeperHolder = mock(ZooKeeperHolder.class);
-        when(zooKeeperHolder.get()).thenReturn(curatorFramework);
-
-        final KafkaTopicRepository kafkaTopicRepository = new KafkaTopicRepository(zooKeeperHolder, mock(KafkaFactory.class),
-                repositorySettings);
-
         // ACT //
         kafkaTopicRepository.createTopic(topicName);
 
         // ASSERT //
         executeWithRetry(() -> {
-                final KafkaConsumer<String, String> kafkaConsumer = kafkaHelper.createConsumer();
-                final Map<String, List<PartitionInfo>> topics = kafkaConsumer.listTopics();
-
+                final Map<String, List<PartitionInfo>> topics = getAllTopics();
                 assertThat(topics.keySet(), hasItem(topicName));
 
                 final List<PartitionInfo> partitionInfos = topics.get(topicName);
@@ -80,6 +68,46 @@ public class KafkaRepositoryAT extends BaseAT {
             },
             new RetryForSpecifiedTimeStrategy<Void>(5000).withExceptionsThatForceRetry(AssertionError.class)
                 .withWaitBetweenEachTry(500));
+    }
+
+    @Test(timeout = 20000)
+    @SuppressWarnings("unchecked")
+    public void whenDeleteTopicThenTopicIsDeleted() throws Exception {
+
+        // ARRANGE //
+        kafkaHelper.createTopic(topicName, zookeeperUrl);
+
+        // wait for topic to be created
+        executeWithRetry(() -> { return getAllTopics().containsKey(topicName); },
+            new RetryForSpecifiedTimeStrategy<Boolean>(5000).withResultsThatForceRetry(false).withWaitBetweenEachTry(
+                500));
+
+        // ACT //
+        kafkaTopicRepository.deleteTopic(topicName);
+
+        // ASSERT //
+        // check that topic was deleted
+        executeWithRetry(() -> { assertThat(getAllTopics().keySet(), not(hasItem(topicName))); },
+            new RetryForSpecifiedTimeStrategy<Void>(5000).withExceptionsThatForceRetry(AssertionError.class)
+                    .withWaitBetweenEachTry(500));
+    }
+
+    private Map<String, List<PartitionInfo>> getAllTopics() {
+        final KafkaConsumer<String, String> kafkaConsumer = kafkaHelper.createConsumer();
+        return kafkaConsumer.listTopics();
+    }
+
+    private KafkaTopicRepository createKafkaTopicRepository() {
+        final CuratorZookeeperClient zookeeperClient = mock(CuratorZookeeperClient.class);
+        when(zookeeperClient.getCurrentConnectionString()).thenReturn(zookeeperUrl);
+
+        final CuratorFramework curatorFramework = mock(CuratorFramework.class);
+        when(curatorFramework.getZookeeperClient()).thenReturn(zookeeperClient);
+
+        final ZooKeeperHolder zooKeeperHolder = mock(ZooKeeperHolder.class);
+        when(zooKeeperHolder.get()).thenReturn(curatorFramework);
+
+        return new KafkaTopicRepository(zooKeeperHolder, mock(KafkaFactory.class), repositorySettings);
     }
 
     private KafkaRepositorySettings createRepositorySettings() {

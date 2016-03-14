@@ -3,13 +3,12 @@ package de.zalando.aruha.nakadi.repository.db;
 import de.zalando.aruha.nakadi.domain.EventType;
 import de.zalando.aruha.nakadi.exceptions.InternalNakadiException;
 import de.zalando.aruha.nakadi.exceptions.NoSuchEventTypeException;
-import de.zalando.aruha.nakadi.repository.DuplicatedEventTypeNameException;
+import de.zalando.aruha.nakadi.exceptions.DuplicatedEventTypeNameException;
 import de.zalando.aruha.nakadi.repository.EventTypeRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.concurrent.ExecutionException;
 
 public class CachingEventTypeRepository implements EventTypeRepository {
 
@@ -44,12 +43,7 @@ public class CachingEventTypeRepository implements EventTypeRepository {
 
     @Override
     public EventType findByName(final String name) throws InternalNakadiException, NoSuchEventTypeException {
-        try {
-            return cache.get(name);
-        } catch (ExecutionException e) {
-            LOG.error("Failed to load event type from cache '" + name + "'", e);
-            throw new InternalNakadiException("Failed to load event type", e);
-        }
+        return cache.getEventType(name);
     }
 
     @Override

@@ -3,18 +3,17 @@ package de.zalando.aruha.nakadi.security;
 
 import com.google.common.collect.ImmutableList;
 import de.zalando.aruha.nakadi.config.SecuritySettings;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.List;
 
+import static org.springframework.http.HttpMethod.DELETE;
 import static org.springframework.http.HttpMethod.GET;
 import static org.springframework.http.HttpMethod.POST;
 import static org.springframework.http.HttpMethod.PUT;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@Ignore("On travis it is very often timed out; temporarily disabled")
 public class FullModeAuthenticationTest extends AuthenticationTest {
 
     static {
@@ -26,6 +25,7 @@ public class FullModeAuthenticationTest extends AuthenticationTest {
             new Endpoint(POST, "/event-types", TOKEN_WITH_EVENT_TYPE_WRITE_SCOPE),
             new Endpoint(GET, "/event-types/foo", TOKEN_WITH_NAKADI_READ_SCOPE),
             new Endpoint(PUT, "/event-types/foo", TOKEN_WITH_EVENT_TYPE_WRITE_SCOPE),
+            new Endpoint(DELETE, "/event-types/foo", TOKEN_WITH_NAKADI_ADMIN_SCOPE),
             new Endpoint(POST, "/event-types/foo/events", TOKEN_WITH_EVENT_STREAM_WRITE_SCOPE),
             new Endpoint(GET, "/event-types/foo/events", TOKEN_WITH_EVENT_STREAM_READ_SCOPE),
             new Endpoint(GET, "/event-types/foo/partitions", TOKEN_WITH_EVENT_STREAM_READ_SCOPE),

@@ -1,72 +1,115 @@
 package de.zalando.aruha.nakadi.validation;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-
-import org.json.JSONObject;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import de.zalando.aruha.nakadi.domain.EventType;
 import de.zalando.aruha.nakadi.domain.ValidationStrategyConfiguration;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 public class EventValidation {
-
-    private static final Map<String, EventTypeValidator> eventTypeValidators = Maps.newConcurrentMap();
-
     public static EventTypeValidator forType(final EventType eventType) {
-        return forType(eventType, false);
+        final EventTypeValidator etv = new EventTypeValidator(eventType);
+        final ValidationStrategyConfiguration vsc = new ValidationStrategyConfiguration();
+        vsc.setStrategyName(EventBodyMustRespectSchema.NAME);
+
+        return etv.withConfiguration(vsc);
     }
 
-    public static EventTypeValidator forType(final EventType eventType, final boolean incrementalEdit) {
+    public static JSONObject effectiveSchema(final EventType eventType) throws JSONException {
+        final JSONObject schema = new JSONObject(eventType.getSchema().getSchema());
 
-        final boolean contains = eventTypeValidators.containsKey(eventType.getName());
-        Preconditions.checkState(incrementalEdit || !contains, "Validator for EventType {} already defined",
-            eventType.getName());
+        switch (eventType.getCategory()) {
+            case BUSINESS: return addMetadata(schema, eventType);
+            case DATA: return wrapSchemaInData(schema, eventType);
+            default: return schema;
+        }
+    }
 
-        if (!contains) {
-            final EventTypeValidator etsv = new EventTypeValidator(eventType);
-            eventTypeValidators.put(eventType.getName(), etsv);
+    private static JSONObject wrapSchemaInData(final JSONObject schema, final EventType eventType) {
+        final JSONObject wrapper = new JSONObject();
+
+        normalizeSchema(wrapper);
+
+        addMetadata(wrapper, eventType);
+
+        final JSONObject properties = wrapper.getJSONObject("properties");
+
+        properties.put("data_type", new JSONObject().put("type", "string"));
+        properties.put("data_op", new JSONObject().put("type", "string")
+                .put("enum", Arrays.asList(new String[] { "C", "U", "D", "S" })));
+        properties.put("data", schema);
+
+        wrapper.put("additionalProperties", false);
+
+        addToRequired(wrapper, new String[]{ "data_type", "data_op", "data" });
+
+        return wrapper;
+    }
+
+    private static JSONObject addMetadata(final JSONObject schema, final EventType eventType) {
+        normalizeSchema(schema);
+
+        final JSONObject metadata = new JSONObject();
+        final JSONObject metadataProperties = new JSONObject();
+
+        final JSONObject uuid = new JSONObject()
+                .put("type", "string")
+                .put("pattern", "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$");
+        final JSONObject arrayOfUUIDs = new JSONObject()
+                .put("type", "array")
+                .put("items", uuid);
+        final JSONObject eventTypeString = new JSONObject()
+                .put("type", "string")
+                .put("enum", Arrays.asList(new String[] { eventType.getName() }));
+        final JSONObject string = new JSONObject().put("type", "string");
+        final JSONObject dateTime = new JSONObject()
+                .put("type", "string")
+                .put("pattern", "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T| )[0-9]{2}:[0-9]{2}:[0-9]{2}(.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$");
+
+        metadataProperties.put("eid", uuid);
+        metadataProperties.put("event_type", eventTypeString);
+        metadataProperties.put("occurred_at", dateTime);
+        metadataProperties.put("parent_eids", arrayOfUUIDs);
+        metadataProperties.put("flow_id", string);
+
+        metadata.put("type", "object");
+        metadata.put("properties", metadataProperties);
+        metadata.put("required", Arrays.asList(new String[]{"eid", "occurred_at"}));
+        metadata.put("additionalProperties", false);
+
+        schema.getJSONObject("properties").put("metadata", metadata);
+
+        addToRequired(schema, new String[]{ "metadata" });
+
+        return schema;
+    }
+
+    private static void addToRequired(final JSONObject schema, final String[] toBeRequired) {
+        final Set<String> required = new HashSet<>(Arrays.asList(toBeRequired));
+
+        final JSONArray currentRequired = schema.getJSONArray("required");
+
+        for(int i = 0; i < currentRequired.length(); i++) {
+            required.add(currentRequired.getString(i));
         }
 
-        return eventTypeValidators.get(eventType.getName());
+        schema.put("required", required);
     }
 
-    public static EventTypeValidator lookup(final EventType eventType) {
-        return eventTypeValidators.get(eventType.getName());
-    }
+    private static void normalizeSchema(final JSONObject schema) {
+        schema.put("type", "object");
 
-    public static void reset() {
-        eventTypeValidators.clear();
+        if (!schema.has("properties")) {
+            schema.put("properties", new JSONObject());
+        }
+
+        if (!schema.has("required")) {
+            schema.put("required", new JSONArray());
+        }
     }
 }
 
-class EventTypeValidator {
-
-    private final EventType eventType;
-    private final List<EventValidator> validators = Lists.newArrayList();
-
-    public EventTypeValidator(final EventType eventType) {
-        this.eventType = eventType;
-    }
-
-    public Optional<ValidationError> validate(final JSONObject event) {
-        return validators
-                .stream()
-                .map(validator -> validator.accepts(event))
-                .filter(Optional::isPresent)
-                .findFirst()
-                .orElse(Optional.empty());
-    }
-
-    public EventTypeValidator withConfiguration(final ValidationStrategyConfiguration vsc) {
-        final ValidationStrategy vs = ValidationStrategy.lookup(vsc.getStrategyName());
-        validators.add(vs.materialize(eventType, vsc));
-
-        return this;
-    }
-
-}

@@ -1,6 +1,7 @@
 package de.zalando.aruha.nakadi.repository;
 
 import de.zalando.aruha.nakadi.domain.EventType;
+import de.zalando.aruha.nakadi.exceptions.DuplicatedEventTypeNameException;
 import de.zalando.aruha.nakadi.exceptions.InternalNakadiException;
 import de.zalando.aruha.nakadi.exceptions.NoSuchEventTypeException;
 

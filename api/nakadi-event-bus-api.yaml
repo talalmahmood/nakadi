@@ -112,6 +112,8 @@ securityDefinitions:
     scopes:
       nakadi.read: |
         Generic read scope for operations that do not require more specific restrictions.
+      nakadi.admin: |
+        Grants access for administrative operations in Nakadi.
       nakadi_event_type.write: |
         Grants access for applications to define and update EventTypes.
       nakadi_event_stream.write: |
@@ -146,6 +148,8 @@ paths:
     get:
       tags:
         - schema-registry-api
+      security:
+        - oauth2: ['nakadi.read']
       description: Returns a list of all registered `EventType`s
       parameters:
         - name: X-Flow-Id
@@ -178,6 +182,8 @@ paths:
     post:
       tags:
         - schema-registry-api
+      security:
+        - oauth2: ['nakadi_event_type.write']
       description: |
         Creates a new `EventType`.
 
@@ -260,6 +266,8 @@ paths:
     get:
       tags:
         - schema-registry-api
+      security:
+        - oauth2: ['nakadi.read']
       description: |
         Returns the `EventType` identified by its name.
       parameters:
@@ -300,6 +308,8 @@ paths:
     put:
       tags:
         - schema-registry-api
+      security:
+        - oauth2: ['nakadi_event_type.write']
       description: |
         Updates the `EventType` identified by its name. Behaviour is the same as creation of `EventType` (See
         POST /event-type) except where noted below.
@@ -351,10 +361,60 @@ paths:
           schema:
             $ref: '#/definitions/Problem'
 
+    delete:
+      tags:
+        - schema-registry-api
+      security:
+        - oauth2: [nakadi.admin]
+      description: |
+        Deletes an `EventType` identified by its name. The underlying Kafka topic and all events of this `EventType`
+        will also be removed.
+        It's important to note that topic deletion in Kafka can take some time, so before it is completelly removed
+        it will not be possible to create an `EventType` with the same name as removed one had (you will get 409
+        response code from creation endpoint)
+      parameters:
+        - name: name
+          in: path
+          description: Name of the EventType to delete.
+          type: string
+          required: true
+        - name: X-Flow-Id
+          in: header
+          description: |
+            The flow id of the request, which is written into the logs and passed to called services. Helpful
+            for operational troubleshooting and log analysis.
+          type: string
+          format: flow-id
+      responses:
+        '200':
+          description: EventType is successfuly removed
+        '401':
+          description: Client is not authenticated
+          schema:
+            $ref: '#/definitions/Problem'
+        '403':
+          description: Client is not authorized to perform this operation
+          schema:
+            $ref: '#/definitions/Problem'
+        '404':
+          description: EventType not found.
+          schema:
+              $ref: '#/definitions/Problem'
+        '500':
+          description: Server error
+          schema:
+            $ref: '#/definitions/Problem'
+        '503':
+          description: Service (temporarily) unavailable
+          schema:
+            $ref: '#/definitions/Problem'
+
   /event-types/{name}/events:
     post:
       tags:
         - stream-api
+      security:
+        - oauth2: ['nakadi_event_stream.write']
       description: |
         Publishes one `Event` of this `EventType`. (**Note** *Format and response semantics of publishing of
         batches of Events will be added in the short term.*)
@@ -437,7 +497,8 @@ paths:
       tags:
         - stream-api
         - unmanaged-api
-        - draft
+      security:
+        - oauth2: ['nakadi_event_stream.read']
       description: |
         Starts a stream delivery for the specified partitions of the given EventType.
 
@@ -597,6 +658,8 @@ paths:
         - unmanaged-api
         - monitoring
         - management-api
+      security:
+        - oauth2: ['nakadi_event_stream.read']
       description: |
         Lists the `Partition`s for the given event-type.
 
@@ -643,6 +706,9 @@ paths:
       tags:
         - unmanaged-api
         - management-api
+      security:
+        - oauth2: ['nakadi_event_stream.read']
+
       description: Returns the given `Partition` of this EventType
       parameters:
         - name: name
@@ -693,6 +759,8 @@ paths:
 
         If the EventType creation is to have special validations (besides the default), one can consult over
         this method the available possibilities.
+      security:
+        - oauth2: ['nakadi.read']
       responses:
         '200':
           description: Returns a list of all `EventValidationStrategy` known to Nakadi
@@ -739,6 +807,9 @@ paths:
     get:
       tags:
         - schema-registry-api
+      security:
+        - oauth2: ['nakadi.read']
+
       description: |
         Lists all of the partitioning strategies supported by this installation of Nakadi.
 
@@ -802,9 +873,6 @@ definitions:
               Clients are allowed to generate this and this SHOULD be guaranteed to be unique from the
               perspective of the producer. Consumers MIGHT use this value to assert uniqueness of reception
               of the Event.
-
-              If not present upon reception, Nakadi will generate and fill this with a unique value.
-              (TBD: enforce UUID format if set by the client?)
             type: string
             example: '105a76d8-db49-4144-ace7-e683e8f4ba46'
           event_type:
@@ -817,8 +885,7 @@ definitions:
             example: 'pennybags:payment-business-event'
           occurred_at:
             description: |
-              Timestamp of creation of the Event generated by the producer. Presence is optional but strongly
-              recommended for producers.
+              Timestamp of creation of the Event generated by the producer.
             type: string
             format: date-time
           received_at:
@@ -843,6 +910,9 @@ definitions:
               from the header into the metadata by Nakadi to avoid clients having to explicitly copy this.
             type: string
             example: 'JAh6xH4OQhCJ9PutIV_RYw'
+        required:
+          - eid
+          - occurred_at
 
         additionalProperties: false
 
@@ -1026,6 +1096,8 @@ definitions:
 
           (TBD: how to deal with organizational changes? Should be reflected on the name of the EventType?
           Isn't it better to omit [organization:team] completely?)
+        pattern: '[a-zA-Z][-0-9a-zA-Z_]*(\.[a-zA-Z][-0-9a-zA-Z_]*)*'
+        example: order.ORDER_CANCELLED
       owning_application:
         type: string
         description: |
@@ -1041,33 +1113,20 @@ definitions:
           Defines the category of this EventType.
 
           The value set will influence, if not set otherwise, the default set of validation-strategies,
-          enrichment-strategies, and the effective_schema in the following way:
+          enrichment-strategies, and the effective schema for validation in the following way:
 
-          - `undefined`: No predefined changes apply. `effective_schema` is exactly the same as the
+          - `undefined`: No predefined changes apply. The effective schema for the validation is exactly the same as the
             `EventTypeSchema`.
-            Default validation_strategy for this `EventType` is `[{name: 'schema-validation'}]`.
+            Default validation_strategy for this `EventType` is `['schema-validation']`.
 
-          - `data`: Events of this category will be DataChangeEvents. `effective_schema` contains `metadata`,
+          - `data`: Events of this category will be DataChangeEvents. The effective schema during the validation contains `metadata`,
             and adds fields `data_op` and `data_type`. The passed EventTypeSchema defines the schema of
             `data`.
-            Default validation_strategy for this `EventType` is `[{name: 'datachange-schema-validation'}]`.
 
-          - `business`: Events of this category will be BusinessEvents. `effective_schema` contains
+          - `business`: Events of this category will be BusinessEvents. The effective schema for validation contains
             `metadata` and any additionally defined properties passed in the `EventTypeSchema` directly on
             top level of the Event. If name conflicts arise, creation of this EventType will be rejected.
-            Default validation_strategy for this `EventType` is `[{name: 'schema-validation'}]`.
-      effective_schema:
-        type: string
-        #read-only: true
-        description: |
-          The effective schema of this `EventType`. The predefined schema validator will use the value of
-          this field as base for the validation.
-
-          The creation of EventTypes of different categories implies a distinct general structure for the
-          payload of events of each type. This ultimate format the payload must adhere to is reflected in
-          the `effective_schema`. See description of field `category` for more details of its generation.
-
-          This field is informative and its contents cannot be manipulated directly.
+            Default validation_strategy for this `EventType` is `['schema-validation']`.
 
       validation_strategies:
         description: |
@@ -1122,8 +1181,10 @@ definitions:
           If set MUST be a valid required field as defined in the schema.
           (TBD should be required? Is applicable only to both Business and DataChange Events?)
 
-      ordering_key_field:
-        type: string
+      partitioning_key_fields:
+        type: array
+        items:
+          type: string
         description: |
           Indicator of the field used for guaranteeing the ordering of Events of this type (used by the
           PartitionResolutionStrategy).
@@ -1132,6 +1193,7 @@ definitions:
     required:
       - name
       - category
+      - owning_application
 
   EventTypeSchema:
     properties:
