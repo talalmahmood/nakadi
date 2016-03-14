@@ -5,18 +5,17 @@ ENV LANG="${LNG}.${ENCODING}"
 ENV LC_ALL="${LANG}"
 ENV PGVERSION="9.5"
 
-ENV KAFKA_VERSION="0.9.0.0" SCALA_VERSION="2.11"
+ENV KAFKA_VERSION="0.9.0.1" SCALA_VERSION="2.11"
 ENV KAFKA_IMG="kafka_${SCALA_VERSION}-${KAFKA_VERSION}"
 ENV KAFKA_DIR="/opt/${KAFKA_IMG}"
 
 # the script is used here to make it possible to use the same script in travis-ci.org
-ADD install-local-storages.sh /
-RUN bash /install-local-storages.sh
-RUN rm /install-local-storages.sh
+COPY install-local-storages.sh install-kafka.sh /
+RUN bash /install-local-storages.sh && rm /install-local-storages.sh /install-kafka.sh
 
 WORKDIR ${KAFKA_DIR}
 
-ADD start-local-storages.sh ${KAFKA_DIR}/
+COPY start-local-storages.sh ${KAFKA_DIR}/
 
 ENTRYPOINT bash start-local-storages.sh
 

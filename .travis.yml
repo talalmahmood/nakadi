@@ -1,18 +1,14 @@
-sudo: required
-
 language: java
 
 jdk:
   - openjdk8
 
-services:
-  - docker
+addons:
+  postgresql: "9.4"
 
 before_script:
-  - sudo /etc/init.d/postgresql stop
   - pip install --user codecov
-  - curl http://www.jpm4j.org/install/script | sudo sh
-  - sudo jpm install com.codacy:codacy-coverage-reporter:assembly
+  - bash -x prepare_travis.sh
 
 env:
   - TEST_SUITE="travis_wait gradle check --stacktrace"   # unit tests
@@ -23,4 +19,4 @@ script: "$TEST_SUITE"
 
 after_success:
   - codecov
-  - codacy-coverage-reporter -l Java -r build/reports/jacoco/test/jacocoTestReport.xml
+  - jpadir/bin/codacy-coverage-reporter -l Java -r build/reports/jacoco/test/jacocoTestReport.xml

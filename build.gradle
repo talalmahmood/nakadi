@@ -243,7 +243,9 @@ def getSqlInstance(db) {
 }
 
 def runMakeStorages(target, options="", timeout=15) {
-    execAndWait("make " + options + " --directory local-storages " + target, timeout)
+    if (System.env.CI == null) {
+        execAndWait("make " + options + " --directory local-storages " + target, timeout)
+    }
 }
 
 task stopAndRemoveStoragesInDocker {
