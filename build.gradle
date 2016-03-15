@@ -298,8 +298,8 @@ task removeOldDockerContainer(type: Exec) {
 }
 
 task startDockerContainer(type: Exec) {
-    commandLine "bash", "-c", "docker run -e \"NAKADI_OAUTH2_MODE=OFF\" " +
-            (System.env.CI ? "-p 8080:8080" : "--net container:$storagesContainerName") +
+    commandLine "bash", "-c", "docker run -e \"NAKADI_OAUTH2_MODE=OFF\" --net " +
+            (System.env.CI ? "host -p 8080:8080" : "container:$storagesContainerName") +
             " --name $dockerContainerName -i -t -d $dockerImageTag"
     dependsOn buildDockerImage, removeOldDockerContainer, startStoragesInDockerBound
 }
