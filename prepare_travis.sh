@@ -12,7 +12,7 @@ jpadir/bin/jpm install com.codacy:codacy-coverage-reporter:assembly
 
 
 # We don't need to install and run ZooKeeper and Kafka if we are not runnin fullAcceptanceTest
-[[ $TEST_SUITE =~ fullAcceptanceTest ]] || exit
+[[ $TEST_SUITE =~ fullAcceptanceTest ]] || exit 0
 
 function wait_for() {
     while ! nc -z localhost $1 ; do sleep 1 ; done
